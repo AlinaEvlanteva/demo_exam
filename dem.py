@@ -4,7 +4,6 @@ import pymysql
 from PyQt5.QtWidgets import *
 from PyQt5.QtGui import QPixmap, QFont
 from PyQt5.QtCore import Qt
-from datetime import datetime
 
 # Глобальные переменные
 current_user_name = ""
@@ -347,19 +346,11 @@ class EditProductWindow(QWidget):
             QMessageBox.critical(self, "Ошибка", str(e))
     
     def delete_product(self):
-        # Проверка, есть ли товар в заказах (заглушка, т.к. в задании требуется)
         reply = QMessageBox.question(self, "Подтверждение", "Удалить товар?", QMessageBox.Yes | QMessageBox.No)
         if reply == QMessageBox.Yes:
             try:
                 db = get_db_connection()
                 cursor = db.cursor()
-                # Проверяем, используется ли товар в заказах (если есть связь)
-                cursor.execute("SELECT COUNT(*) FROM order_items WHERE product_id=%s", (self.tovar_id,))
-                count = cursor.fetchone()[0]
-                if count > 0:
-                    QMessageBox.warning(self, "Ошибка", "Товар присутствует в заказах, удаление невозможно")
-                    db.close()
-                    return
                 cursor.execute("DELETE FROM tovar WHERE tovar_id=%s", (self.tovar_id,))
                 db.commit()
                 db.close()
@@ -480,295 +471,44 @@ class AddProductWindow(QWidget):
         AddProductWindow.add_window_instance = None
         event.accept()
 
-# ==================== ОКНО ДОБАВЛЕНИЯ ЗАКАЗА ====================
-class AddOrderWindow(QWidget):
-    add_order_instance = None
-
-    @classmethod
-    def is_open(cls):
-        return cls.add_order_instance is not None and cls.add_order_instance.isVisible()
-
-    def __init__(self, parent_window=None):
-        super().__init__()
-        if AddOrderWindow.is_open():
-            QMessageBox.warning(self, "Внимание", "Окно добавления заказа уже открыто")
-            self.close()
-            return
-
-        AddOrderWindow.add_order_instance = self
-        self.parent_window = parent_window
-        self.setWindowTitle("Добавление заказа")
-        self.setFixedSize(400, 350)
-
-        layout = QVBoxLayout()
-
-        layout.addWidget(QLabel("Артикул:"))
-        self.article_edit = QLineEdit()
-        layout.addWidget(self.article_edit)
-
-        layout.addWidget(QLabel("Статус заказа:"))
-        self.status_combo = QComboBox()
-        self.status_combo.addItems(["Новый", "В обработке", "Доставлен", "Завершен"])
-        layout.addWidget(self.status_combo)
-
-        layout.addWidget(QLabel("Адрес пункта выдачи:"))
-        self.address_edit = QLineEdit()
-        layout.addWidget(self.address_edit)
-
-        layout.addWidget(QLabel("Дата заказа (ГГГГ-ММ-ДД):"))
-        self.order_date_edit = QLineEdit(datetime.now().strftime("%Y-%m-%d"))
-        layout.addWidget(self.order_date_edit)
-
-        layout.addWidget(QLabel("Дата выдачи (ГГГГ-ММ-ДД):"))
-        self.delivery_date_edit = QLineEdit()
-        layout.addWidget(self.delivery_date_edit)
-
-        btn_layout = QHBoxLayout()
-        save_btn = QPushButton("Добавить")
-        save_btn.clicked.connect(self.save_order)
-        cancel_btn = QPushButton("Отмена")
-        cancel_btn.clicked.connect(self.close)
-
-        btn_layout.addWidget(save_btn)
-        btn_layout.addWidget(cancel_btn)
-        layout.addLayout(btn_layout)
-
-        self.setLayout(layout)
-
-    def save_order(self):
-        try:
-            article = self.article_edit.text().strip()
-            if not article:
-                QMessageBox.warning(self, "Ошибка", "Введите артикул")
-                return
-            status = self.status_combo.currentText()
-            address = self.address_edit.text().strip()
-            if not address:
-                QMessageBox.warning(self, "Ошибка", "Введите адрес пункта выдачи")
-                return
-            order_date = self.order_date_edit.text().strip()
-            delivery_date = self.delivery_date_edit.text().strip() or None
-
-            db = get_db_connection()
-            cursor = db.cursor()
-            cursor.execute(
-                "INSERT INTO orders (article, status, delivery_address, order_date, delivery_date) VALUES (%s, %s, %s, %s, %s)",
-                (article, status, address, order_date, delivery_date)
-            )
-            db.commit()
-            db.close()
-            QMessageBox.information(self, "Успех", "Заказ добавлен")
-            if self.parent_window:
-                self.parent_window.load_orders()
-            self.close()
-        except Exception as e:
-            QMessageBox.critical(self, "Ошибка", str(e))
-
-    def closeEvent(self, event):
-        AddOrderWindow.add_order_instance = None
-        event.accept()
-
-# ==================== ОКНО РЕДАКТИРОВАНИЯ ЗАКАЗА ====================
-class EditOrderWindow(QWidget):
-    edit_order_instance = None
-
-    @classmethod
-    def is_open(cls):
-        return cls.edit_order_instance is not None and cls.edit_order_instance.isVisible()
-
-    def __init__(self, order_id, parent_window=None):
-        super().__init__()
-        if EditOrderWindow.is_open():
-            QMessageBox.warning(self, "Внимание", "Окно редактирования заказа уже открыто")
-            self.close()
-            return
-
-        EditOrderWindow.edit_order_instance = self
-        self.order_id = order_id
-        self.parent_window = parent_window
-        self.setWindowTitle("Редактирование заказа")
-        self.setFixedSize(400, 350)
-
-        layout = QVBoxLayout()
-
-        # Загружаем данные заказа
-        try:
-            db = get_db_connection()
-            cursor = db.cursor()
-            cursor.execute(
-                "SELECT article, status, delivery_address, order_date, delivery_date FROM orders WHERE order_id=%s",
-                (order_id,)
-            )
-            self.order_data = cursor.fetchone()
-            db.close()
-        except Exception as e:
-            QMessageBox.critical(self, "Ошибка", str(e))
-            self.close()
-            return
-
-        layout.addWidget(QLabel("Артикул:"))
-        self.article_edit = QLineEdit(self.order_data[0])
-        layout.addWidget(self.article_edit)
-
-        layout.addWidget(QLabel("Статус заказа:"))
-        self.status_combo = QComboBox()
-        self.status_combo.addItems(["Новый", "В обработке", "Доставлен", "Завершен"])
-        self.status_combo.setCurrentText(self.order_data[1])
-        layout.addWidget(self.status_combo)
-
-        layout.addWidget(QLabel("Адрес пункта выдачи:"))
-        self.address_edit = QLineEdit(self.order_data[2])
-        layout.addWidget(self.address_edit)
-
-        layout.addWidget(QLabel("Дата заказа (ГГГГ-ММ-ДД):"))
-        self.order_date_edit = QLineEdit(str(self.order_data[3]))
-        layout.addWidget(self.order_date_edit)
-
-        layout.addWidget(QLabel("Дата выдачи (ГГГГ-ММ-ДД):"))
-        self.delivery_date_edit = QLineEdit(str(self.order_data[4]) if self.order_data[4] else "")
-        layout.addWidget(self.delivery_date_edit)
-
-        btn_layout = QHBoxLayout()
-        save_btn = QPushButton("Сохранить")
-        save_btn.clicked.connect(self.save_order)
-        delete_btn = QPushButton("Удалить")
-        delete_btn.clicked.connect(self.delete_order)
-        cancel_btn = QPushButton("Отмена")
-        cancel_btn.clicked.connect(self.close)
-
-        btn_layout.addWidget(save_btn)
-        btn_layout.addWidget(delete_btn)
-        btn_layout.addWidget(cancel_btn)
-        layout.addLayout(btn_layout)
-
-        self.setLayout(layout)
-
-    def save_order(self):
-        try:
-            article = self.article_edit.text().strip()
-            if not article:
-                QMessageBox.warning(self, "Ошибка", "Введите артикул")
-                return
-            status = self.status_combo.currentText()
-            address = self.address_edit.text().strip()
-            if not address:
-                QMessageBox.warning(self, "Ошибка", "Введите адрес пункта выдачи")
-                return
-            order_date = self.order_date_edit.text().strip()
-            delivery_date = self.delivery_date_edit.text().strip() or None
-
-            db = get_db_connection()
-            cursor = db.cursor()
-            cursor.execute(
-                "UPDATE orders SET article=%s, status=%s, delivery_address=%s, order_date=%s, delivery_date=%s WHERE order_id=%s",
-                (article, status, address, order_date, delivery_date, self.order_id)
-            )
-            db.commit()
-            db.close()
-            QMessageBox.information(self, "Успех", "Заказ обновлен")
-            if self.parent_window:
-                self.parent_window.load_orders()
-            self.close()
-        except Exception as e:
-            QMessageBox.critical(self, "Ошибка", str(e))
-
-    def delete_order(self):
-        reply = QMessageBox.question(self, "Подтверждение", "Удалить заказ?", QMessageBox.Yes | QMessageBox.No)
-        if reply == QMessageBox.Yes:
-            try:
-                db = get_db_connection()
-                cursor = db.cursor()
-                cursor.execute("DELETE FROM orders WHERE order_id=%s", (self.order_id,))
-                db.commit()
-                db.close()
-                QMessageBox.information(self, "Успех", "Заказ удален")
-                if self.parent_window:
-                    self.parent_window.load_orders()
-                self.close()
-            except Exception as e:
-                QMessageBox.critical(self, "Ошибка", str(e))
-
-    def closeEvent(self, event):
-        EditOrderWindow.edit_order_instance = None
-        event.accept()
-
 # ==================== ОКНО ЗАКАЗОВ ====================
 class OrdersWindow(QWidget):
-    def __init__(self, parent_window=None):
+    def __init__(self):
         super().__init__()
-        self.parent_window = parent_window
         self.setWindowTitle("Заказы")
-        self.setGeometry(100, 100, 900, 500)
+        self.setGeometry(100, 100, 800, 500)
         
         layout = QVBoxLayout()
         
-        # Верхняя панель с кнопками
-        top_layout = QHBoxLayout()
         back_btn = QPushButton("← Назад")
         back_btn.clicked.connect(self.close)
-        top_layout.addWidget(back_btn)
+        layout.addWidget(back_btn)
         
-        # Кнопка добавления заказа (только для администратора)
-        if current_user_role == "Администратор":
-            add_btn = QPushButton("+ Добавить заказ")
-            add_btn.clicked.connect(self.add_order)
-            add_btn.setStyleSheet("background-color: #4CAF50; color: white; padding: 5px 10px; border-radius: 5px;")
-            top_layout.addWidget(add_btn)
-        
-        top_layout.addStretch()
-        layout.addLayout(top_layout)
-        
-        # Таблица заказов
         self.table = QTableWidget()
-        self.table.setColumnCount(5)
-        self.table.setHorizontalHeaderLabels(["ID", "Артикул", "Статус", "Адрес выдачи", "Дата заказа", "Дата выдачи"])
+        self.table.setColumnCount(3)
+        self.table.setHorizontalHeaderLabels(["ID заказа", "Статус", "Артикул"])
         self.table.horizontalHeader().setStretchLastSection(True)
-        self.table.setEditTriggers(QTableWidget.NoEditTriggers)
         layout.addWidget(self.table)
         
         self.setLayout(layout)
         self.load_orders()
-        
-        # Двойной клик для редактирования (только админ)
-        if current_user_role == "Администратор":
-            self.table.itemDoubleClicked.connect(self.edit_order)
     
     def load_orders(self):
         try:
             db = get_db_connection()
             cursor = db.cursor()
-            # Предполагаем структуру таблицы orders: order_id, article, status, delivery_address, order_date, delivery_date
-            cursor.execute("SELECT order_id, article, status, delivery_address, order_date, delivery_date FROM orders")
+            cursor.execute("SELECT order_id, status, article FROM orders")
             orders = cursor.fetchall()
             db.close()
             
             self.table.setRowCount(len(orders))
-            for row, (oid, article, status, address, order_date, delivery_date) in enumerate(orders):
-                self.table.setItem(row, 0, QTableWidgetItem(str(oid)))
-                self.table.setItem(row, 1, QTableWidgetItem(article))
-                self.table.setItem(row, 2, QTableWidgetItem(status))
-                self.table.setItem(row, 3, QTableWidgetItem(address))
-                self.table.setItem(row, 4, QTableWidgetItem(str(order_date)))
-                self.table.setItem(row, 5, QTableWidgetItem(str(delivery_date) if delivery_date else ""))
+            for row, (order_id, status, article) in enumerate(orders):
+                self.table.setItem(row, 0, QTableWidgetItem(str(order_id)))
+                self.table.setItem(row, 1, QTableWidgetItem(status))
+                self.table.setItem(row, 2, QTableWidgetItem(article))
             self.table.resizeColumnsToContents()
         except Exception as e:
             QMessageBox.warning(self, "Ошибка", f"Не удалось загрузить заказы: {e}")
-    
-    def add_order(self):
-        if AddOrderWindow.is_open():
-            QMessageBox.warning(self, "Внимание", "Окно добавления заказа уже открыто")
-            return
-        self.add_order_win = AddOrderWindow(self)
-        self.add_order_win.show()
-    
-    def edit_order(self, item):
-        row = item.row()
-        order_id = int(self.table.item(row, 0).text())
-        if EditOrderWindow.is_open():
-            QMessageBox.warning(self, "Внимание", "Окно редактирования заказа уже открыто")
-            return
-        self.edit_order_win = EditOrderWindow(order_id, self)
-        self.edit_order_win.show()
 
 # ==================== ОКНО СПИСКА ТОВАРОВ ====================
 class ItemsWindow(QWidget):
@@ -792,14 +532,12 @@ class ItemsWindow(QWidget):
         exit_btn.setStyleSheet("background-color: #f44336; color: white; padding: 8px 15px; border-radius: 5px;")
         top_layout.addWidget(exit_btn)
         
-        # Кнопка заказов (для менеджера и админа)
         if current_user_role in ["Менеджер", "Администратор"]:
             orders_btn = QPushButton("📋 Заказы")
             orders_btn.clicked.connect(self.open_orders)
             orders_btn.setStyleSheet("background-color: #2196F3; color: white; padding: 8px 15px; border-radius: 5px;")
             top_layout.addWidget(orders_btn)
         
-        # Кнопка добавления товара (только админ)
         if current_user_role == "Администратор":
             add_btn = QPushButton("+ Добавить товар")
             add_btn.clicked.connect(self.add_product)
@@ -818,7 +556,7 @@ class ItemsWindow(QWidget):
         top_panel.setLayout(top_layout)
         main_layout.addWidget(top_panel)
         
-        # ПАНЕЛЬ ФИЛЬТРОВ (только для менеджера и админа)
+        # ПАНЕЛЬ ФИЛЬТРОВ
         if current_user_role in ["Менеджер", "Администратор"]:
             filter_panel = QWidget()
             filter_panel.setStyleSheet("background-color: white; border-radius: 5px; padding: 5px;")
@@ -847,7 +585,6 @@ class ItemsWindow(QWidget):
             filter_panel.setLayout(filter_layout)
             main_layout.addWidget(filter_panel)
             
-            # Подключаем события
             self.search_edit.textChanged.connect(self.load_items)
             self.discount_filter.currentTextChanged.connect(self.load_items)
             self.sort_combo.currentTextChanged.connect(self.load_items)
@@ -877,7 +614,7 @@ class ItemsWindow(QWidget):
         self.close()
     
     def open_orders(self):
-        self.orders_window = OrdersWindow(self)
+        self.orders_window = OrdersWindow()
         self.orders_window.show()
     
     def add_product(self):
@@ -888,7 +625,6 @@ class ItemsWindow(QWidget):
         self.add_window.show()
     
     def load_items(self):
-        # Очистка
         while self.items_layout.count():
             item = self.items_layout.takeAt(0)
             if item.widget():
